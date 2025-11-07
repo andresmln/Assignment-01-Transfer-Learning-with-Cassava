@@ -1,0 +1,2 @@
+# Ignorar la carpeta de checkpoints en cualquier subcarpeta
+*/.ipynb_checkpoints/
