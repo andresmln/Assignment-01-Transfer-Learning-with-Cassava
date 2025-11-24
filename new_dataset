@@ -1,0 +1,37 @@
+import torch
+import numpy as np
+from skimage.io import imread
+import torchvision.transforms.v2 as T
+from torchvision.transforms.v2 import functional as F
+
+class CCPDataset(torch.utils.data.Dataset):
+
+    def __init__(self, df, class_df=None, patch_size=224, transforms=None, mode='train'):
+        super(CCPDataset, self).__init__()
+        self.df = df
+        self.ps = patch_size
+        self.transforms = transforms
+        self.mode = mode
+
+        # --- 1. Multiclass LUT Setup ---
+        # Only needed if class_df is provided (safety check)
+        if class_df is not None:
+            self.color_to_class = np.zeros((256, 256, 256), dtype=np.int64)
+            # Fill with 0 (background) or a distinct index if you prefer
+            self.color_to_class.fill(0)
+
+            for index, row in class_df.iterrows():
+                r, g, b = int(row['r']), int(row['g']), int(row['b'])
+                self.color_to_class[r, g, b] = index
+        else:
+            # Fallback if class_df isn't passed (though it should be)
+            self.color_to_class = None
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+
+        # 1. Read Images (H, W, 3) - Returns Numpy
+        x = imread(row.image_path)
+        y = imread(row.mask_path)
+
+        # 2. Handle Evaluation Mode (Deterministic Cro
