@@ -1,37 +1,98 @@
 import torch
 import numpy as np
 from skimage.io import imread
-import torchvision.transforms.v2 as T
-from torchvision.transforms.v2 import functional as F
+import matplotlib.pyplot as plt
 
 class CCPDataset(torch.utils.data.Dataset):
 
-    def __init__(self, df, class_df=None, patch_size=224, transforms=None, mode='train'):
+    def __init__(self, df, class_df, patch_size=224, transforms=None):
+        """
+        Args:
+            df (pd.DataFrame): DataFrame with image_path and mask_path.
+            class_df (pd.DataFrame): DataFrame with class_name, r, g, b.
+            patch_size (int): Size of the random crop.
+            transforms (callable, optional): PyTorch transforms.
+        """
         super(CCPDataset, self).__init__()
         self.df = df
         self.ps = patch_size
         self.transforms = transforms
-        self.mode = mode
 
-        # --- 1. Multiclass LUT Setup ---
-        # Only needed if class_df is provided (safety check)
-        if class_df is not None:
-            self.color_to_class = np.zeros((256, 256, 256), dtype=np.int64)
-            # Fill with 0 (background) or a distinct index if you prefer
-            self.color_to_class.fill(0)
+        # --- CHANGE 1: Pre-calculate Color Mapping ---
+        # We build a 256x256x256 array to map RGB -> Class ID instantly.
+        self.color_to_class = np.zeros((256, 256, 256), dtype=np.int64)
+        self.color_to_class.fill(0) # Default to background (class 0) or -1 for ignore
 
-            for index, row in class_df.iterrows():
-                r, g, b = int(row['r']), int(row['g']), int(row['b'])
-                self.color_to_class[r, g, b] = index
-        else:
-            # Fallback if class_df isn't passed (though it should be)
-            self.color_to_class = None
+        # Populate the lookup table from your class_df
+        for index, row in class_df.iterrows():
+            # Assuming 'r','g','b' are columns in class_df
+            r, g, b = int(row['r']), int(row['g']), int(row['b'])
+            self.color_to_class[r, g, b] = index
+
+    def __random_crop__(self, img, mask):
+        H, W, _ = img.shape
+
+        # Safety check: if image is smaller than patch, resize or return center
+        # (For simplicity here, we assume images are >= patch_size)
+        if H < self.ps or W < self.ps:
+            raise ValueError(f"Image ({H}x{W}) is smaller than patch size ({self.ps})")
+
+        # Random top-left corner
+        y = np.random.randint(0, H - self.ps + 1)
+        x = np.random.randint(0, W - self.ps + 1)
+
+        # Extract patch
+        img_patch = img[y:y+self.ps, x:x+self.ps, :]
+        mask_patch = mask[y:y+self.ps, x:x+self.ps, :]
+
+        return img_patch, mask_patch
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
+        # Take the idx-th row from the DataFrame
+        r = self.df.iloc[idx]
 
-        # 1. Read Images (H, W, 3) - Returns Numpy
-        x = imread(row.image_path)
-        y = imread(row.mask_path)
+        # Read image and mask
+        # skimage reads as RGB, which matches your CSV format
+        x = imread(r.image_path)
+        y = imread(r.mask_path)
 
-        # 2. Handle Evaluation Mode (Deterministic Cro
+        # Take a random patch
+        x, y = self.__random_crop__(x, y)
+
+        # --- CHANGE 2: Fast RGB to Index Mapping ---
+        # Replaces the manual binary check.
+        # This converts (224, 224, 3) -> (224, 224) with integers 0-58
+        y_indices = self.color_to_class[y[:, :, 0], y[:, :, 1], y[:, :, 2]]
+
+        # --- CHANGE 3: Normalization & Type Conversion ---
+        # Image: Convert 0-255 uint8 -> 0.0-1.0 float32
+        x = x.astype(np.float32) / 255.0
+
+        # Convert to Tensors
+        x = torch.from_numpy(x.transpose(2, 0, 1)) # (H, W, C) -> (C, H, W)
+
+        # Mask: Must be Long (int64) for CrossEntropyLoss. No transpose needed (H, W).
+        y = torch.from_numpy(y_indices).long()
+
+        # Apply transforms (Ensure your transforms handle Tensors now)
+        if self.transforms:
+            x = self.transforms(x)
+
+        return x, y
+
+    def __show_item__(self, x, y):
+        f, axarr = plt.subplots(1, 2, figsize=(10, 5))
+
+        # Undo tensor setup for plotting
+        img_np = x.permute(1, 2, 0).numpy()
+
+        axarr[0].imshow(img_np)
+        axarr[0].set_title("Image Patch")
+
+        # Display mask (using a colormap to distinguish classes)
+        axarr[1].imshow(y.numpy(), cmap='tab20b')
+        axarr[1].set_title("Segmentation Mask")
+        plt.show()
+
+    def __len__(self):
+        return self.df.shape[0]
