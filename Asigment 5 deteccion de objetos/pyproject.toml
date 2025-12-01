@@ -1,0 +1,21 @@
+[project]
+name = "assigment-5"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.7, <3.11"
+dependencies = [
+    "fastprogress>=1.0.3",
+    "lightning>=1.9.5",
+    "matplotlib>=3.5.3",
+    "mmcv>=2.2.0",
+    "mmdet>=3.3.0",
+    "numpy>=1.21.6",
+    "opencv-python>=4.12.0.88",
+    "pandas>=1.1.5",
+    "pillow>=9.5.0",
+    "pytorch-lightning>=1.9.5",
+    "selectivesearch>=0.4",
+    "torch>=1.13.1",
+    "torchmetrics>=0.11.4",
+]
